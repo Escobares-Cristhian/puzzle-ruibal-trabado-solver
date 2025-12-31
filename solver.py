@@ -24,8 +24,8 @@ initial_board = np.array(
 # Max depth for safety
 MAX_DEPTH = 1000
 
-# Output folder
-OUT_FOLDER = "output"
+# Output folder (from docker-compose env var OUTPUT_FOLDER)
+OUTPUT_FOLDER = os.getenv("OUTPUT_FOLDER", None)
 
 
 # ----- Functions -----
@@ -278,7 +278,7 @@ def save_solution_movie(
             out_path = out_path.rsplit(".", 1)[0] + ".gif"
             writer = animation.PillowWriter(fps=fps)
 
-    ani.save(f"{OUT_FOLDER}/{out_path}", writer=writer, dpi=dpi)
+    ani.save(f"{OUTPUT_FOLDER}/{out_path}", writer=writer, dpi=dpi)
     plt.close(fig)
     return out_path
 
@@ -286,9 +286,9 @@ def save_solution_movie(
 # ----- Main solver loop -----
 if __name__ == "__main__":
     # Ensure folders exist
-    if not os.path.exists(OUT_FOLDER):
-        os.makedirs(OUT_FOLDER)
-    
+    if not os.path.exists(OUTPUT_FOLDER):
+        os.makedirs(OUTPUT_FOLDER)
+
     # Initial board plot
     plot_board(initial_board)
 

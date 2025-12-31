@@ -1,0 +1,11 @@
+services:
+  solver:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    environment:
+      OUTPUT_FOLDER: /app/output
+    volumes:
+      - .:/app
+      - ${OUTPUT_FOLDER_HOST}:/app/output
+    working_dir: /app
