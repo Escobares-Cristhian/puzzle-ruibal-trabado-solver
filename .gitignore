@@ -1,2 +1,5 @@
 # Cache folders
 __pycache__/*
+
+# Output folder
+output/*

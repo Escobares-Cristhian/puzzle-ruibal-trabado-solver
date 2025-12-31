@@ -1,7 +1,12 @@
+import os
 import numpy as np
 import matplotlib.pyplot as plt
 from time import perf_counter
 import numba as nb
+
+# For movie export
+import matplotlib.animation as animation
+
 
 # ----- Configuration params -----
 # "Trabado" puzzle solver: Ruibal version
@@ -18,6 +23,10 @@ initial_board = np.array(
 
 # Max depth for safety
 MAX_DEPTH = 1000
+
+# Output folder
+OUT_FOLDER = "output"
+
 
 # ----- Functions -----
 @nb.njit(cache=True)
@@ -147,11 +156,142 @@ def expand_unique_frontier(frontier_boards: list[np.ndarray], frontier_paths: li
     return next_boards, next_paths
 
 
+# ----- Reconstruct boards & save a movie efficiently -----
+_DIR_TO_CODE = {"u": 0, "d": 1, "l": 2, "r": 3}
+
+
+def boards_from_path(initial: np.ndarray, path: str) -> list[np.ndarray]:
+    """
+    Reconstruct the full board sequence from the initial board and a path like:
+        "2u 3d 5l ..."
+    Returns a list of boards: [initial, after_1, after_2, ...]
+    """
+    boards: list[np.ndarray] = [initial.copy()]
+    if not path.strip():
+        return boards
+
+    current = initial.copy()
+    for token in path.strip().split():
+        piece = int(token[:-1])
+        direction_char = token[-1]
+        direction_code = _DIR_TO_CODE[direction_char]
+        valid, current = move_piece(current.copy(), piece, direction_code)
+        if not valid:
+            raise ValueError(f"Invalid move in solution path: {token}")
+        boards.append(current.copy())
+    return boards
+
+
+def save_solution_movie(
+    boards: list[np.ndarray],
+    out_path: str = "solution.mp4",
+    fps: int = 8,
+    dpi: int = 160,
+    hold_last_seconds: float = 5.0,
+) -> str:
+    """
+    Save a movie of the solution.
+
+    - Uses FFmpeg for .mp4 if available (fast + compact).
+    - Falls back to .gif (Pillow) if FFmpeg isn't available.
+    """
+    if len(boards) == 0:
+        raise ValueError("No boards to render.")
+
+    # Precompute frame arrays once (fast updates)
+    fps = int(fps)
+    if fps < 1:
+        fps = 1
+    frames = []
+    for b in boards:
+        arr = b.astype(float)
+        arr[arr == 0] = np.nan
+        frames.append(arr)
+
+    # Hold the final frame for a fixed wall-clock duration (independent of fps choice)
+    hold_frames = int(round(max(0.0, hold_last_seconds) * fps))
+    total_frames = len(frames) + hold_frames
+
+    # Colormap with explicit NaN color for consistent output
+    cmap = plt.get_cmap("tab10")
+    try:
+        cmap = cmap.copy()
+    except Exception:
+        pass
+    try:
+        cmap.set_bad(color="white")
+    except Exception:
+        pass
+
+    fig, ax = plt.subplots()
+    ax.set_axis_off()
+
+    im = ax.imshow(frames[0], cmap=cmap)
+
+    # Text artists: one per cell, updated each frame (board is tiny -> very fast)
+    nrows, ncols = frames[0].shape
+    texts = []
+    for r in range(nrows):
+        for c in range(ncols):
+            t = ax.text(c, r, "", ha="center", va="center", color="w")
+            texts.append(t)
+
+    def _update(frame_idx: int):
+        # During the 'hold' tail, keep showing the last actual board
+        idx = frame_idx if frame_idx < len(frames) else (len(frames) - 1)
+        arr = frames[idx]
+        im.set_data(arr)
+
+        # Update numbers
+        k = 0
+        for r in range(nrows):
+            for c in range(ncols):
+                v = arr[r, c]
+                if np.isnan(v):
+                    texts[k].set_text("")
+                else:
+                    texts[k].set_text(str(int(v)))
+                k += 1
+
+        return (im, *texts)
+
+    ani = animation.FuncAnimation(
+        fig,
+        _update,
+        frames=total_frames,
+        interval=int(1000 / max(1, fps)),
+        blit=True,
+        repeat=False,
+    )
+
+    # Pick writer
+    lower = out_path.lower()
+    if lower.endswith(".gif"):
+        writer = animation.PillowWriter(fps=fps)
+    else:
+        if animation.writers.is_available("ffmpeg"):
+            writer = animation.FFMpegWriter(
+                fps=fps, codec="libx264", extra_args=["-pix_fmt", "yuv420p"]
+            )
+        else:
+            # Fallback: save GIF instead
+            out_path = out_path.rsplit(".", 1)[0] + ".gif"
+            writer = animation.PillowWriter(fps=fps)
+
+    ani.save(f"{OUT_FOLDER}/{out_path}", writer=writer, dpi=dpi)
+    plt.close(fig)
+    return out_path
+
+
 # ----- Main solver loop -----
 if __name__ == "__main__":
+    # Ensure folders exist
+    if not os.path.exists(OUT_FOLDER):
+        os.makedirs(OUT_FOLDER)
+    
     # Initial board plot
     plot_board(initial_board)
-    
+
     # ----- Initialize BFS frontier (depth 1) -----
     visited_boards: list[np.ndarray] = [initial_board.copy()]
     visited_keys: set[bytes] = {board_key(initial_board)}
@@ -171,6 +311,9 @@ if __name__ == "__main__":
                     frontier_paths.append(f"{piece}{direction_char}")
 
     t_global_start = perf_counter()
+
+    solved = False
+    solved_path = ""
 
     # ----- BFS Loop -----
     for depth in range(1, MAX_DEPTH + 1):
@@ -199,17 +342,18 @@ if __name__ == "__main__":
         frontier_paths = new_frontier_paths
 
         # Check if solved
-        solved = False
         for idx, b in enumerate(frontier_boards):
             if is_solved(b):
                 solved = True
+                solved_path = frontier_paths[idx]
+
                 print("-" * 60)
                 print("%" * 60)
                 print("-" * 60)
                 print(f"Solved at depth {depth}")
                 plot_board(b)
                 print("Moves:")
-                print(frontier_paths[idx])
+                print(solved_path)
                 print("-" * 60)
                 print("%" * 60)
                 print("-" * 60)
@@ -235,3 +379,11 @@ if __name__ == "__main__":
 
     t_global_end = perf_counter()
     print(f"Total runtime: {t_global_end - t_global_start:.4f}s")
+
+    # ----- Save movie after finding a solution -----
+    if solved:
+        boards = boards_from_path(initial_board, solved_path)
+        movie_path = save_solution_movie(
+            boards, out_path="solution.mp4", fps=1, dpi=200, hold_last_seconds=5.0
+        )
+        print(f"Saved solution movie to: {movie_path}")
