@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 from time import perf_counter
 import numba as nb
 
+# ----- Configuration params -----
 # "Trabado" puzzle solver: Ruibal version
 initial_board = np.array(
     [
@@ -18,7 +19,7 @@ initial_board = np.array(
 # Max depth for safety
 MAX_DEPTH = 1000
 
-
+# ----- Functions -----
 @nb.njit(cache=True)
 def is_solved(board: np.ndarray) -> bool:
     # Goal: piece "2" must occupy positions (4,1) and (4,2)
@@ -37,9 +38,6 @@ def plot_board(board_in: np.ndarray) -> None:
                 continue
             plt.text(c, r, int(board[r, c]), ha="center", va="center", color="w")
     plt.show()
-
-
-plot_board(initial_board)
 
 
 def get_pieces_adjacent_to_empty(board: np.ndarray) -> list[int]:
@@ -149,84 +147,91 @@ def expand_unique_frontier(frontier_boards: list[np.ndarray], frontier_paths: li
     return next_boards, next_paths
 
 
-# ----- Initialize BFS frontier (depth 1) -----
-visited_boards: list[np.ndarray] = [initial_board.copy()]
-visited_keys: set[bytes] = {board_key(initial_board)}
+# ----- Main solver loop -----
+if __name__ == "__main__":
+    # Initial board plot
+    plot_board(initial_board)
+    
+    # ----- Initialize BFS frontier (depth 1) -----
+    visited_boards: list[np.ndarray] = [initial_board.copy()]
+    visited_keys: set[bytes] = {board_key(initial_board)}
 
-frontier_boards: list[np.ndarray] = []
-frontier_paths: list[str] = []
+    frontier_boards: list[np.ndarray] = []
+    frontier_paths: list[str] = []
 
-for piece in get_pieces_adjacent_to_empty(initial_board):
-    for direction_code, direction_char in enumerate(["u", "d", "l", "r"]):
-        valid, moved = move_piece(initial_board.copy(), piece, direction_code)
-        if valid:
-            k = board_key(moved)
-            if k not in visited_keys:
-                visited_keys.add(k)
-                frontier_boards.append(moved.copy())
-                frontier_paths.append(f"{piece}{direction_char}")
+    # Generate all valid moves from the initial board
+    for piece in get_pieces_adjacent_to_empty(initial_board):
+        for direction_code, direction_char in enumerate(["u", "d", "l", "r"]):
+            valid, moved = move_piece(initial_board.copy(), piece, direction_code)
+            if valid:
+                k = board_key(moved)
+                if k not in visited_keys:
+                    visited_keys.add(k)
+                    frontier_boards.append(moved.copy())
+                    frontier_paths.append(f"{piece}{direction_char}")
 
-t_global_start = perf_counter()
+    t_global_start = perf_counter()
 
-for depth in range(1, MAX_DEPTH + 1):
-    t_depth_start = perf_counter()
+    # ----- BFS Loop -----
+    for depth in range(1, MAX_DEPTH + 1):
+        t_depth_start = perf_counter()
 
-    # Expand one layer, dedupe within the new layer
-    expanded_boards, expanded_paths = expand_unique_frontier(frontier_boards, frontier_paths)
+        # Expand one layer, dedupe within the new layer
+        expanded_boards, expanded_paths = expand_unique_frontier(frontier_boards, frontier_paths)
 
-    # Filter out boards already visited across all previous layers
-    new_frontier_boards: list[np.ndarray] = []
-    new_frontier_paths: list[str] = []
+        # Filter out boards already visited across all previous layers
+        new_frontier_boards: list[np.ndarray] = []
+        new_frontier_paths: list[str] = []
 
-    removed_count = 0
-    for b, p in zip(expanded_boards, expanded_paths):
-        k = board_key(b)
-        if k in visited_keys:
-            removed_count += 1
-            continue
-        visited_keys.add(k)
-        visited_boards.append(b.copy())
-        new_frontier_boards.append(b.copy())
-        new_frontier_paths.append(p)
+        # Deduplication count and filtering
+        removed_count = 0
+        for b, p in zip(expanded_boards, expanded_paths):
+            k = board_key(b)
+            if k in visited_keys:
+                removed_count += 1
+                continue
+            visited_keys.add(k)
+            visited_boards.append(b.copy())
+            new_frontier_boards.append(b.copy())
+            new_frontier_paths.append(p)
 
-    frontier_boards = new_frontier_boards
-    frontier_paths = new_frontier_paths
+        frontier_boards = new_frontier_boards
+        frontier_paths = new_frontier_paths
 
-    # Check solved
-    solved = False
-    for idx, b in enumerate(frontier_boards):
-        if is_solved(b):
-            solved = True
-            print("-" * 60)
-            print("%" * 60)
-            print("-" * 60)
-            print(f"Solved at depth {depth}")
-            plot_board(b)
-            print("Moves:")
-            print(frontier_paths[idx])
-            print("-" * 60)
-            print("%" * 60)
-            print("-" * 60)
+        # Check if solved
+        solved = False
+        for idx, b in enumerate(frontier_boards):
+            if is_solved(b):
+                solved = True
+                print("-" * 60)
+                print("%" * 60)
+                print("-" * 60)
+                print(f"Solved at depth {depth}")
+                plot_board(b)
+                print("Moves:")
+                print(frontier_paths[idx])
+                print("-" * 60)
+                print("%" * 60)
+                print("-" * 60)
+                break
+
+        t_depth_end = perf_counter()
+
+        print(
+            f"Depth {depth:4d} --- "
+            f"Frontier boards: {len(frontier_boards):6d} --- "
+            f"Visited boards: {len(visited_boards):6d} --- "
+            f"Removed (already visited): {removed_count:6d} --- "
+            f"Depth time: {t_depth_end - t_depth_start:.4f}s"
+        )
+
+        # If frontier is empty, there are no more possible paths
+        if len(frontier_boards) == 0:
+            print("No solution.")
             break
 
-    t_depth_end = perf_counter()
+        if solved:
+            break
 
-    print(
-        f"Depth {depth:4d} --- "
-        f"Frontier boards: {len(frontier_boards):6d} --- "
-        f"Visited boards: {len(visited_boards):6d} --- "
-        f"Removed (already visited): {removed_count:6d} --- "
-        f"Depth time: {t_depth_end - t_depth_start:.4f}s"
-    )
-
-    # If frontier is empty, there are no more possible paths
-    if len(frontier_boards) == 0:
-        print("No solution.")
-        break
-
-    if solved:
-        break
-
-t_global_end = perf_counter()
-print(f"Total runtime: {t_global_end - t_global_start:.4f}s")
-
+    t_global_end = perf_counter()
+    print(f"Total runtime: {t_global_end - t_global_start:.4f}s")
