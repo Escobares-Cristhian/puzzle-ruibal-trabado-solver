@@ -2,6 +2,22 @@
 
 Optimized brute-force solver for the Ruibal "Trabado" sliding puzzle using BFS. The core logic lives in `solver.py` and uses Numba-accelerated move validation to explore the state space efficiently.
 
+<p align="center">
+  <img src="./readme_files/real_puzzle_view.png" alt="Real puzzle view" width="300" />
+</p>
+
+## Game rules:
+- **Players:** 1
+- **Board:** A rectangular tray containing multiple blocks, with a **single exit notch** on the **bottom edge** (marked with a **“V”** on the blue frame).
+- **Target piece:** The **big square block** (the orange in the game, the green in box).
+- **Goal:** **Slide the big square block out of the tray through the bottom “V” exit.**
+- **Legal moves:**
+  - Blocks **slide** inside the tray.
+  - Moves are **straight** (up/down/left/right), staying flush with the tray walls/other blocks.
+  - Blocks **cannot be lifted** out of the tray during play.
+  - Blocks **do not rotate**, their orientation stays fixed.
+- **Win condition:** The puzzle is solved when the **big square block has fully exited** through the bottom notch.
+
 ## Requirements
 - Python 3
 - Python packages: `numpy`, `numba`, `matplotlib` (see `docker/requirements.txt`)
@@ -56,7 +72,9 @@ Depth    <d> --- Frontier boards: <n> --- Visited boards: <n> --- Removed (alrea
   - global visited set across all depths (`visited_keys`)
 
 ## Performance plot: time per BFS depth
-![Time per BFS depth](./readme_files/03_time_vs_depth.png)
+<p align="center">
+  <img src="./readme_files/03_time_vs_depth.png" alt="Time per BFS depth" width="600" />
+</p>
 
 ### Runtime per BFS depth (optimized brute-force)
 
